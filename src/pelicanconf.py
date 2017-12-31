@@ -16,7 +16,7 @@ TRANSLATION_FEED_ATOM = None
 AUTHOR_FEED_ATOM = None
 AUTHOR_FEED_RSS = None
 
-OUTPUT_PATH = path.join(getcwd().strip("src"), "webpage")
+OUTPUT_PATH = path.join(getcwd().strip("src"), "static")
 DELETE_OUTPUT_DIRECTORY = True
 
 
