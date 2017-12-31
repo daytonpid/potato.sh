@@ -7,7 +7,6 @@ AUTHOR = 'd$pid'
 AUTHOR_REAL = 'Dayton Pidhirney'
 SITENAME = 'potato.sh'
 PATH     = 'content'
-TIMEZONE = 'America/Edmonton'
 DEFAULT_LANG = 'en'
 
 FEED_ALL_ATOM = None
