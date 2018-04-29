@@ -12,6 +12,8 @@ AUTHOR_IMAGE = "d$pid.jpeg"
 TWITTER_USERNAME = 'd$pid'
 
 TIMEZONE = 'America/Edmonton'
+SITENAME = 'potato.sh'
+PATH     = 'content'
 DEFAULT_LANG = 'en'
 SITENAME = 'potato.sh'
 
