@@ -5,17 +5,14 @@ from os import getcwd, path
 
 DEBUG = False
 
-# PELICAN_OPTS
 AUTHOR = 'd$pid'
 AUTHOR_REAL = 'Dayton Pidhirney'
 AUTHOR_IMAGE = "d$pid.jpeg"
-TWITTER_USERNAME = 'd$pid'
 
+DEFAULT_LANG = 'en'
 TIMEZONE = 'America/Edmonton'
 SITENAME = 'potato.sh'
-PATH     = 'content'
-DEFAULT_LANG = 'en'
-SITENAME = 'potato.sh'
+DISQUS_SITENAME = "potato-sh"
 
 FEED_ALL_ATOM = None
 CATEGORY_FEED_ATOM = None
@@ -24,8 +21,11 @@ AUTHOR_FEED_ATOM = None
 AUTHOR_FEED_RSS = None
 
 PATH = 'content'
-OUTPUT_PATH = path.join(getcwd().strip("src"), "static")
+OUTPUT_PATH = path.join(getcwd().strip('src'), 'static')
 DELETE_OUTPUT_DIRECTORY = True
+
+TWITTER_USERNAME = 'd$pid'
+GITHUB_URL = 'https://github.com/daytonpid'
 
 
 # Blogroll
@@ -45,8 +45,9 @@ DISPLAY_TAGS_ON_SIDEBAR_LIMIT = 0
 DISPLAY_LINKS_ON_SIDEBAR_LIMIT = 0
 CAPITALIZE_HEADINGS = True
 LICENSE = {
-    'cc_name':"by-sa",
-    'hosted':False,
-    'compact':True,
-    'brief':False
+    'cc_name': "by-sa",
+    'hosted': False,
+    'compact': True,
+    'brief': False
 }
+

@@ -1,8 +1,10 @@
 #!/bin/bash
 yum install -y nginx
 
-# If you are thinking, why would this person put his certificates on the internet. go ahead; try downloading them
+curl -o /var/www/robots.txt   https://s3-us-west-1.amazonaws.com/blackbox.ninja/potato-sh/robots.txt
 curl -o /etc/nginx/nginx.conf https://s3-us-west-1.amazonaws.com/blackbox.ninja/potato-sh/nginx.conf
+
+# Go ahead, try downloading them.
 curl -o /tmp/cert.pem https://s3-us-west-1.amazonaws.com/blackbox.ninja/potato-sh/cert.pem
 curl -o /tmp/cert.key https://s3-us-west-1.amazonaws.com/blackbox.ninja/potato-sh/cert.key
 
